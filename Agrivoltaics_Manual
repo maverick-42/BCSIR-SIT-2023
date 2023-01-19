@@ -1,0 +1,176 @@
+#include <WiFi.h> 
+#include <Servo.h>
+#include <AsyncTCP.h>
+#include <AsyncElegantOTA.h>
+#include <ESPAsyncWebServer.h> 
+#include <LiquidCrystal_I2C.h>
+
+int PWM = 32;
+float Solar = 0;
+TaskHandle_t Loop0;
+
+const char* ssid     = "TP-LINK_D8B6";
+const char* password = "farhan2758";
+
+//defining Servos
+Servo servoH;
+int servoHO = 0;
+int servoHOLimitHigh = 160;
+int servoHOLimitLow = 20;
+
+Servo servoV;
+int servoVE = 0;
+int servoVELimitHigh = 160;
+int servoVELimitLow = 20;
+
+//Assigning LDRs
+int ldrtopL = 39;
+int ldrtopR = 36;
+int ldrbotL = 35;
+int ldrbotR = 34;
+
+int i          = 16;
+int ii         =  0; 
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+AsyncWebServer server(80);
+
+ void setup ()
+ {
+  Serial.begin(115200);
+  delay(300);
+  lcd.begin();
+  lcd.backlight();
+  lcd.setCursor(0,0);
+  lcd.print("AGRIVOLTAICS");
+  delay(2000); 
+  lcd.clear();
+  StartWiFi(ssid, password);
+  servoH.attach(13);
+  servoH.write(0);
+  servoV.attach(4);
+  servoV.write(0);
+
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+  request->send(200, "text/plain", "Hi! I am ESP32.");
+  });
+
+  AsyncElegantOTA.begin(&server);    // Start ElegantOTA
+  server.begin();
+  Serial.println("HTTP server started");
+
+ {
+    xTaskCreatePinnedToCore(
+                      Loop0code,
+                      "Loop 0",
+                      10000,
+                      NULL,
+                      1,
+                      &Loop0,
+                      0);                
+ }  
+
+  delay(1000);
+}
+
+void Loop0code( void * pvParameters ) {
+  for(;;){
+    
+  Solar = analogRead(PWM);
+  float Volt = Solar / 817.5;
+  Serial.print(" Volts : ");
+  Serial.println(Volt);
+    
+  lcd.setCursor(0,1);
+  lcd.print("Volts : ");
+  lcd.setCursor(12,1);
+  lcd.print(Volt);
+  delay(2000);
+  lcd.clear();
+
+ delay(1000); 
+
+ }
+}
+
+void loop()
+{
+  servoHO = servoH.read();
+  servoVE = servoV.read();
+  //capturing analog values of each LDR
+  int topL = analogRead(ldrtopL);
+  int topR = analogRead(ldrtopR);
+  int botL = analogRead(ldrbotL);
+  int botR = analogRead(ldrbotR);
+  // calculating average
+  int avgtop = (topL + topR) / 2; //average of top LDRs
+  int avgbot = (botL + botR) / 2; //average of bottom LDRs
+  int avgleft = (topL + botL) / 2; //average of left LDRs
+  int avgright = (topR + botR) / 2; //average of right LDRs
+
+  if (avgtop < avgbot)
+  {
+    servoV.write(servoVE +1);
+    if (servoVE > servoVELimitHigh)
+     {
+      servoVE = servoVELimitHigh;
+     }
+    delay(10);
+  }
+  else if (avgbot < avgtop)
+  {
+    servoV.write(servoVE -1);
+    if (servoVE < servoVELimitLow)
+  {
+    servoVE = servoVELimitLow;
+  }
+    delay(10);
+  }
+  else
+  {
+    servoV.write(servoVE);
+  }
+ 
+  if (avgleft > avgright)
+  {
+    servoH.write(servoHO +1);
+    if (servoHO > servoHOLimitHigh)
+    {
+    servoHO = servoHOLimitHigh;
+    }
+    delay(10);
+  }
+  else if (avgright > avgleft)
+  {
+    servoH.write(servoHO -1);
+    if (servoHO < servoHOLimitLow)
+     {
+     servoHO = servoHOLimitLow;
+     }
+    delay(10);
+  }
+  else
+  {
+    servoH.write(servoHO);
+  }
+  delay(50);
+}
+
+////////////////////////////////////////////////////////////
+
+int StartWiFi(const char* ssid, const char* password) {
+  int connAttempts = 0;
+  Serial.print(F("\r\nConnecting to: ")); Serial.println(String(ssid));
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED ) {
+    delay(500); Serial.print(".");
+    if (connAttempts > 20) {
+      Serial.println("\nFailed to connect to a Wi-Fi network");
+      return false;
+    }
+    connAttempts++;
+  }
+  Serial.print(F("WiFi connected at: "));
+  Serial.println(WiFi.localIP());
+  return true;
+}
